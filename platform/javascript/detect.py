@@ -20,6 +20,7 @@ def get_opts():
         # eval() can be a security concern, so it can be disabled.
         BoolVariable('javascript_eval', 'Enable JavaScript eval interface', True),
         BoolVariable('threads_enabled', 'Enable WebAssembly Threads support (limited browser support)', False),
+        BoolVariable('use_closure_compiler', 'Use closure compiler to minimize Javascript code', False),
     ]
 
 
@@ -48,8 +49,6 @@ def configure(env):
         # run-time performance.
         env.Append(CCFLAGS=['-Os'])
         env.Append(LINKFLAGS=['-Os'])
-        # Enable closure compiler in release builds.
-        env.Append(LINKFLAGS=['--closure', '1'])
     elif env['target'] == 'release_debug':
         env.Append(CCFLAGS=['-Os'])
         env.Append(LINKFLAGS=['-Os'])
@@ -65,7 +64,7 @@ def configure(env):
     if env['tools']:
         if not env['threads_enabled']:
             raise RuntimeError("Threads must be enabled to build the editor. Please add the 'threads_enabled=yes' option")
-        # Tools need more memory
+        # Tools need more memory. Initial stack memory in bytes. See `src/settings.js` in emscripten repository (will be renamed to INITIAL_MEMORY).
         env.Append(LINKFLAGS=['-s', 'TOTAL_MEMORY=33554432'])
     else:
         # Disable exceptions and rtti on non-tools (template) builds
@@ -74,19 +73,26 @@ def configure(env):
         # Don't use dynamic_cast, necessary with no-rtti.
         env.Append(CPPDEFINES=['NO_SAFE_CAST'])
 
+    ## Copy env variables.
+    env['ENV'] = os.environ
+
     # LTO
     if env['use_lto']:
         env.Append(CCFLAGS=['-s', 'WASM_OBJECT_FILES=0'])
         env.Append(LINKFLAGS=['-s', 'WASM_OBJECT_FILES=0'])
         env.Append(LINKFLAGS=['--llvm-lto',  '1'])
 
-    ## Closure compiler builder
-    jscc = env.Builder(generator=run_closure_compiler, suffix='.cc.js', src_suffix='.js')
-    env.Append(BUILDERS = {'BuildJS' : jscc})
+    # Closure compiler
+    if env['use_closure_compiler']:
+        # For emscripten support code.
+        env.Append(LINKFLAGS=['--closure', '1'])
+        # Register builder for our Engine files
+        jscc = env.Builder(generator=run_closure_compiler, suffix='.cc.js', src_suffix='.js')
+        env.Append(BUILDERS = {'BuildJS' : jscc})
+
+    # Add method that joins/compiles our Engine files.
     env.AddMethod(create_engine_file, "CreateEngineFile")
 
-    ## Compiler configuration
-    env['ENV'] = os.environ
     # Closure compiler extern and support for ecmascript specs (const, let, etc).
     env['ENV']['EMCC_CLOSURE_ARGS'] = '--language_in ECMASCRIPT6'
 
@@ -127,14 +133,15 @@ def configure(env):
     # Thread support (via SharedArrayBuffer).
     if env['threads_enabled']:
         env.Append(CPPDEFINES=['PTHREAD_NO_RENAME'])
-        env.Append(CPPFLAGS=['-s', 'USE_PTHREADS=1']);
-        env.Append(LINKFLAGS=['-s', 'USE_PTHREADS=1']);
+        env.Append(CCFLAGS=['-s', 'USE_PTHREADS=1'])
+        env.Append(LINKFLAGS=['-s', 'USE_PTHREADS=1'])
         env.Append(LINKFLAGS=['-s', 'PTHREAD_POOL_SIZE=4'])
         env.Append(LINKFLAGS=['-s', 'WASM_MEM_MAX=2048MB'])
     else:
         env.Append(CPPDEFINES=['NO_THREADS'])
-        # Reduce code size, not working with threads, not so useful with closure.
-        env.Append(LINKFLAGS=['-s', 'ENVIRONMENT=web,worker'])
+
+    # Reduce code size by generating less support code (e.g. skip NodeJS support).
+    env.Append(LINKFLAGS=['-s', 'ENVIRONMENT=web,worker'])
 
     # We use IDBFS in javascript_main.cpp. Since Emscripten 1.39.1 it needs to
     # be linked explicitly.
@@ -153,8 +160,5 @@ def configure(env):
 
     env.Append(LINKFLAGS=['-s', 'INVOKE_RUN=0'])
 
-    # TODO: Reevaluate usage of this setting now that engine.js manages engine runtime.
-    #env.Append(LINKFLAGS=['-s', 'NO_EXIT_RUNTIME=1'])
-
-    #adding flag due to issue with emscripten 1.38.41 callMain method https://github.com/emscripten-core/emscripten/blob/incoming/ChangeLog.md#v13841-08072019
+    # callMain for manual start, FS for preloading.
     env.Append(LINKFLAGS=['-s', 'EXTRA_EXPORTED_RUNTIME_METHODS=["callMain", "FS"]'])

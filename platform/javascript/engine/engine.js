@@ -94,7 +94,7 @@ Function('return this')()['Engine'] = (function() {
 		});
 	};
 
-	Engine.prototype.startGame = function(execName, mainPack) {
+	Engine.prototype.startGame = function(execName, mainPack, extraArgs) {
 		// Start and init with execName as loadPath if not inited.
 		executableName = execName;
 		var me = this;
@@ -102,7 +102,10 @@ Function('return this')()['Engine'] = (function() {
 			this.init(execName),
 			this.preloadFile(mainPack, mainPack)
 		]).then(function() {
-			return me.start('--main-pack', mainPack);
+			var args = ['--main-pack', mainPack];
+			if (extraArgs)
+				args = args.concat(extraArgs);
+			return me.start.apply(me, args);
 		});
 	};
 

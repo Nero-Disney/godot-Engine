@@ -18,6 +18,7 @@ def parse_config():
     normalized['CLOSURE_BIN'] = os.path.join(normalized['EMCC_ROOT'], 'node_modules', '.bin', 'google-closure-compiler')
     return normalized
 
+
 def run_closure_compiler(target, source, env, for_signature):
     cfg = parse_config()
     cmd = [cfg['NODE_JS'], cfg['CLOSURE_BIN']]
@@ -31,6 +32,6 @@ def run_closure_compiler(target, source, env, for_signature):
 
 
 def create_engine_file(env, target, source, externs):
-    if env['target'] == 'release':
+    if env['use_closure_compiler']:
         return env.BuildJS(target, source, JSEXTERNS=externs)
     return env.Textfile(target, [env.File(s) for s in source])
